@@ -191,3 +191,46 @@
         (ok true)
     )
 )
+
+(define-public (update-protocol-apy (protocol-id uint) (new-apy uint))
+    (begin
+        (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
+        (asserts! (is-valid-protocol-id protocol-id) ERR-INVALID-PROTOCOL-ID)
+        (asserts! (protocol-exists protocol-id) ERR-INVALID-PROTOCOL-ID)
+        (asserts! (is-valid-apy new-apy) ERR-INVALID-APY)
+        
+        (let ((protocol (unwrap-panic (get-protocol protocol-id))))
+            (map-set protocols { protocol-id: protocol-id }
+                (merge protocol { apy: new-apy })
+            )
+        )
+        (ok true)
+    )
+)
+
+;; Token Management Functions
+(define-private (validate-token (token-trait <sip-010-trait>))
+    (let
+        (
+            (token-contract (contract-of token-trait))
+            (token-info (map-get? whitelisted-tokens { token: token-contract }))
+        )
+        (asserts! (is-some token-info) ERR-TOKEN-NOT-WHITELISTED)
+        (asserts! (get approved (unwrap-panic token-info)) ERR-PROTOCOL-NOT-WHITELISTED)
+        
+        (let
+            (
+                (name-response (try! (contract-call? token-trait get-name)))
+                (symbol-response (try! (contract-call? token-trait get-symbol)))
+                (decimals-response (try! (contract-call? token-trait get-decimals)))
+            )
+            (asserts! (and
+                (> (len name-response) u0)
+                (> (len symbol-response) u0)
+                (>= decimals-response u0)
+            ) ERR-INVALID-TOKEN)
+        )
+        
+        (ok token-contract)
+    )
+)
