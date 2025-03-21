@@ -452,3 +452,61 @@
         )
     )
 )
+
+;; Helper Functions
+(define-private (get-protocol-list)
+    (list u1 u2 u3 u4 u5)
+)
+
+(define-private (get-protocol-allocation (protocol-id uint))
+    (get allocation (default-to { allocation: u0 }
+        (map-get? strategy-allocations { protocol-id: protocol-id })))
+)
+
+(define-private (check-rate-limit (user principal))
+    (let ((user-ops (default-to { last-operation: u0, count: u0 }
+            (map-get? user-operations { user: user }))))
+        (asserts! (or
+            (> stacks-block-height (+ (get last-operation user-ops) u144))
+            (< (get count user-ops) u10)
+        ) ERR-RATE-LIMITED)
+        (ok true)
+    )
+)
+
+(define-private (update-rate-limit (user principal))
+    (let ((user-ops (default-to { last-operation: u0, count: u0 }
+            (map-get? user-operations { user: user }))))
+        (map-set user-operations
+            { user: user }
+            {
+                last-operation: stacks-block-height,
+                count: (if (> stacks-block-height (+ (get last-operation user-ops) u144))
+                    u1
+                    (+ (get count user-ops) u1))
+            }
+        )
+    )
+)
+
+(define-private (validate-token-extended (token-trait <sip-010-trait>))
+    (let
+        (
+            (token-contract (contract-of token-trait))
+            (token-info (map-get? whitelisted-tokens { token: token-contract }))
+        )
+        (try! (validate-token token-trait))
+        
+        (asserts! (not (is-eq token-contract (as-contract tx-sender))) ERR-INVALID-TOKEN)
+        
+        (let ((total-supply (try! (contract-call? token-trait get-total-supply))))
+            (asserts! (> total-supply u0) ERR-INVALID-TOKEN)
+        )
+        
+        (let ((decimals (try! (contract-call? token-trait get-decimals))))
+            (asserts! (and (>= decimals u6) (<= decimals u18)) ERR-INVALID-TOKEN)
+        )
+        
+        (ok token-contract)
+    )
+)
