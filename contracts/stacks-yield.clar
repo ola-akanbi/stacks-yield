@@ -306,3 +306,62 @@
         (ok true)
     )
 )
+
+;; Token Transfer Helper
+(define-private (safe-token-transfer (token-trait <sip-010-trait>) (amount uint) (sender principal) (recipient principal))
+    (begin
+        (asserts! (not (var-get emergency-shutdown)) ERR-STRATEGY-DISABLED)
+        (try! (check-valid-amount amount))
+        (try! (check-valid-user recipient))
+        (try! (validate-token token-trait))
+        
+        (let ((sender-balance (unwrap-panic (contract-call? token-trait get-balance sender))))
+            (asserts! (>= sender-balance amount) ERR-INSUFFICIENT-BALANCE)
+        )
+        (contract-call? token-trait transfer amount sender recipient none)
+    )
+)
+
+;; Reward Management Functions
+(define-private (calculate-rewards (user principal) (blocks uint))
+    (let
+        (
+            (user-deposit (unwrap-panic (get-user-deposit user)))
+            (weighted-apy (get-weighted-apy))
+        )
+        (/ (* (get amount user-deposit) weighted-apy blocks) (* u10000 u144 u365))
+    )
+)
+
+(define-public (claim-rewards (token-trait <sip-010-trait>))
+    (let
+        (
+            (user-principal tx-sender)
+            (rewards (calculate-rewards user-principal (- stacks-block-height 
+                (get last-deposit-block (unwrap-panic (get-user-deposit user-principal))))))
+        )
+        (try! (validate-token-extended token-trait))
+        (try! (check-rate-limit user-principal))
+        (asserts! (> rewards u0) ERR-INVALID-AMOUNT)
+        
+        (let ((contract-balance (try! (contract-call? token-trait get-balance (as-contract tx-sender)))))
+            (asserts! (>= contract-balance rewards) ERR-INSUFFICIENT-BALANCE)
+        )
+
+        (map-set user-rewards
+            { user: user-principal }
+            {
+                pending: u0,
+                claimed: (+ rewards 
+                    (get claimed (default-to { pending: u0, claimed: u0 }
+                        (map-get? user-rewards { user: user-principal }))))
+            })
+        
+        (update-rate-limit user-principal)
+        
+        (as-contract
+            (try! (safe-token-transfer token-trait rewards tx-sender user-principal)))
+        
+        (ok rewards)
+    )
+)
