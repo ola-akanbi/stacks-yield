@@ -407,3 +407,48 @@
 (define-read-only (get-total-tvl)
     (var-get total-tvl)
 )
+
+(define-read-only (is-whitelisted (token <sip-010-trait>))
+    (default-to false (get approved (map-get? whitelisted-tokens { token: (contract-of token) })))
+)
+
+;; Administrative Functions
+(define-public (set-platform-fee (new-fee uint))
+    (begin
+        (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
+        (asserts! (<= new-fee u1000) ERR-INVALID-AMOUNT)
+        (var-set platform-fee-rate new-fee)
+        (ok true)
+    )
+)
+
+(define-public (set-emergency-shutdown (shutdown bool))
+    (begin
+        (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
+        (asserts! (not (is-eq shutdown (var-get emergency-shutdown))) ERR-INVALID-STATE)
+        (print { event: "emergency-shutdown", status: shutdown })
+        (var-set emergency-shutdown shutdown)
+        (ok true)
+    )
+)
+
+(define-public (whitelist-token (token <sip-010-trait>))
+    (begin
+        (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
+        (let 
+            (
+                (token-contract (contract-of token))
+            )
+            (asserts! (not (is-whitelisted token)) ERR-ALREADY-WHITELISTED)
+            
+            (try! (contract-call? token get-name))
+            (try! (contract-call? token get-symbol))
+            (try! (contract-call? token get-decimals))
+            (try! (contract-call? token get-total-supply))
+            
+            (map-set whitelisted-tokens { token: token-contract } { approved: true })
+            (print { event: "token-whitelisted", token: token-contract })
+            (ok true)
+        )
+    )
+)
